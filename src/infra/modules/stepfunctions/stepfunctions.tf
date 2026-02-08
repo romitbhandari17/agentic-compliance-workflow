@@ -13,7 +13,7 @@ variable "state_machine_definition" {
 }
 
 resource "aws_sfn_state_machine" "this" {
-  name       = "${var.name_prefix}-step-functions-machine"
+  name       = "${var.name_prefix}-state-machine"
   role_arn   = var.role_arn
   definition = var.state_machine_definition
   type       = "STANDARD"

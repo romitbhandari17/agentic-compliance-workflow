@@ -1,6 +1,6 @@
 env = "dev"
 project = "agentic-compliance-workflow"
-region = "us-east-1"
+region = "us-west-2"
 
 ingestion_source_path = "../../../agents/ingestion/ingestion.zip"
 

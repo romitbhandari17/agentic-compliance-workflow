@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
 # Set default session so subsequent boto3.client() calls inherit the region
-boto3.setup_default_session(region_name="us-east-1")
+boto3.setup_default_session(region_name="us-west-2")
 s3_client = boto3.client("s3")
 textract_client = boto3.client("textract")
 
