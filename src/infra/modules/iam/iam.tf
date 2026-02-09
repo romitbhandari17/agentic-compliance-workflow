@@ -38,6 +38,34 @@ data "aws_iam_policy_document" "ingestion_policy_doc" {
     ]
     resources = ["*"]
   }
+
+  statement {
+    sid    = "Textract"
+    effect = "Allow"
+    actions = [
+      "textract:DetectDocumentText",
+      "textract:AnalyzeDocument",
+      "textract:StartDocumentTextDetection",
+      "textract:GetDocumentTextDetection",
+      "textract:StartDocumentAnalysis",
+      "textract:GetDocumentAnalysis"
+    ]
+    resources = ["*"]
+  }
+
+  # S3 access for reading source objects and writing extracted/processed results
+  statement {
+    sid    = "S3Access"
+    effect = "Allow"
+    actions = [
+      "s3:GetObject",
+      "s3:GetObjectVersion",
+      "s3:ListBucket",
+      "s3:PutObject"
+    ]
+    resources = ["*"]
+  }
+
 }
 
 resource "aws_iam_role_policy" "ingestion_policy" {
@@ -84,26 +112,13 @@ data "aws_iam_policy_document" "compliance_policy_doc" {
   }
 
   statement {
-    sid    = "Textract"
-    effect = "Allow"
-    actions = [
-      "textract:DetectDocumentText",
-      "textract:AnalyzeDocument",
-      "textract:StartDocumentTextDetection",
-      "textract:GetDocumentTextDetection",
-      "textract:StartDocumentAnalysis",
-      "textract:GetDocumentAnalysis"
-    ]
-    resources = ["*"]
-  }
-
-  statement {
     sid    = "S3ReadForTextract"
     effect = "Allow"
     actions = [
       "s3:GetObject",
       "s3:GetObjectVersion",
-      "s3:ListBucket"
+      "s3:ListBucket",
+      "s3:PutObject"
     ]
     resources = ["*"]
   }

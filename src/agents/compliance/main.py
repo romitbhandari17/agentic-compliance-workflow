@@ -13,8 +13,6 @@ import boto3
 logger = logging.getLogger(__name__)
 logger.setLevel(os.environ.get("LOG_LEVEL", "INFO"))
 
-print(f"AWS region for os env: {os.environ.get("AWS_REGION")}")
-
 _region = os.environ.get("AWS_REGION") or os.environ.get("AWS_DEFAULT_REGION") or "us-west-2"
 # Set default session so boto3.client() picks this region when created without explicit region
 boto3.setup_default_session(region_name=_region)
@@ -82,13 +80,7 @@ def _call_bedrock_for_checks(text: str, model: Optional[str] = None) -> Dict[str
         return {"bedrock_ok": False, "error": msg}
 
     # Candidate model ordering: explicit argument, env var, common Nova id, Anthropic fallback
-    env_model = os.environ.get("BEDROCK_MODEL_ID")
-    candidates = [m for m in [model, env_model,"arn:aws:bedrock:us-west-2:968239734180:inference-profile/global.amazon.nova-2-lite-v1:0"] if m] #"anthropic.claude-v1" "amazon.nova-lite-v1:0"
-
-    if not candidates:
-        msg = "No Bedrock model candidate available"
-        logger.info(msg)
-        return {"bedrock_ok": False, "error": msg}
+    model_id = os.environ.get("BEDROCK_MODEL_ID") or "arn:aws:bedrock:us-west-2:968239734180:inference-profile/global.amazon.nova-2-lite-v1:0" #"anthropic.claude-v1" "amazon.nova-lite-v1:0"
 
     # Build a single messages-style payload that uses an array for content items
     prompt = (
@@ -123,47 +115,39 @@ def _call_bedrock_for_checks(text: str, model: Optional[str] = None) -> Dict[str
         }
 
     last_err: Optional[Exception] = None
-    for model_id in candidates:
-        try:
-            print(f"Trying Bedrock model: {model_id}")
-            body = json.dumps(payload)
-            response = client.invoke_model(
-                modelId=model_id,
-                contentType="application/json",
-                accept="application/json",
-                body=body,
-            )
+    try:
+        print(f"Trying Bedrock model: {model_id}")
+        body = json.dumps(payload)
+        response = client.invoke_model(
+            modelId=model_id,
+            contentType="application/json",
+            accept="application/json",
+            body=body,
+        )
 
-            resp_body = response.get("body") or response.get("Body")
-            if not resp_body:
-                raise RuntimeError("Empty response from Bedrock")
+        resp_body = response.get("body") or response.get("Body")
+        if not resp_body:
+            raise RuntimeError("Empty response from Bedrock")
 
-            if hasattr(resp_body, "read"):
-                raw = resp_body.read()
-                if isinstance(raw, bytes):
-                    raw = raw.decode("utf-8", errors="ignore")
-            else:
-                raw = resp_body
+        if hasattr(resp_body, "read"):
+            raw = resp_body.read()
+            if isinstance(raw, bytes):
+                raw = raw.decode("utf-8", errors="ignore")
+        else:
+            raw = resp_body
 
-            parsed = json.loads(raw)
-            print(f"Bedrock model {model_id} returned a response")
-            return {"bedrock_ok": True, "result": parsed, "used_model": model_id}
+        parsed = json.loads(raw)
+        print(f"Bedrock model {model_id} returned a response")
+        return {"bedrock_ok": True, "result": parsed, "used_model": model_id}
 
-        except Exception as e:
-            last_err = e
-            msg = str(e)
-            # If validation-type errors occur, try next candidate model
-            if any(k in msg for k in ("messages", "JSONArray", "Malformed", "required key")):
-                print(f"Bedrock model {model_id} rejected the payload: {msg}. Trying next candidate.")
-                logger.info("Bedrock model %s rejected payload: %s", model_id, msg)
-                continue
-
-            # For other errors, log and try next model as well (graceful fallback)
-            logger.exception("Bedrock invoke failed for model %s", model_id)
-            print(f"Bedrock invoke failed for model {model_id}: {msg}. Trying next candidate.")
-            continue
-
-    return {"bedrock_ok": False, "error": str(last_err) if last_err else "no models tried"}
+    except Exception as e:
+        last_err = e
+        msg = str(e)
+        # If validation-type errors occur, try next candidate model
+        if any(k in msg for k in ("messages", "JSONArray", "Malformed", "required key")):
+            print(f"Bedrock model {model_id} rejected the payload: {msg}")
+            logger.info("Bedrock model %s rejected payload: %s", model_id, msg)
+            return {"bedrock_ok": False, "error": str(last_err) if last_err else "no models tried"}
 
 
 def _local_pii_checks(text: str) -> List[Dict[str, Any]]:

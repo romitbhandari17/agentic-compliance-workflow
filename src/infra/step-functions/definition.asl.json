@@ -1,25 +1,25 @@
 {
-  "Comment": "Simplified Contract Review Workflow - Ingestion and Risk Analysis Only",
+  "Comment": "Contract Review Workflow - Ingestion -> Compliance -> Output",
   "StartAt": "IngestionAgent",
   "States": {
     "IngestionAgent": {
       "Type": "Task",
-      "Comment": "Ingests contract from S3, extracts text via Textract, and structures key clauses using Bedrock",
+      "Comment": "Ingests contract from S3 and extracts text via Textract",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${INGESTION_LAMBDA}",
         "Payload": {
           "s3.$": "$.s3",
-          "vendor_metadata.$": "$.vendor_metadata",
           "contract_id.$": "$.contract_id"
         }
       },
       "ResultPath": "$.ingestion_result",
       "ResultSelector": {
         "contract_id.$": "$.Payload.contract_id",
-        "source.$": "$.Payload.source",
-        "extracted.$": "$.Payload.extracted",
-        "chunk_count.$": "$.Payload.chunk_count",
+        "s3.$": "$.Payload.s3",
+        "extracted_text.$": "$.Payload.extracted_text",
+        "extracted_lines.$": "$.Payload.extracted_lines",
+        "metadata.$": "$.Payload.metadata",
         "status.$": "$.Payload.status"
       },
       "Retry": [
@@ -27,11 +27,12 @@
           "ErrorEquals": [
             "Lambda.ServiceException",
             "Lambda.AWSLambdaException",
-            "Lambda.SdkClientException"
+            "Lambda.SdkClientException",
+            "States.TaskFailed"
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "BackoffRate": 2.0
         }
       ],
       "Catch": [
@@ -41,27 +42,31 @@
           "Next": "WorkflowFailed"
         }
       ],
-      "Next": "RiskAnalysisAgent"
+      "Next": "ComplianceAgent"
     },
 
-    "RiskAnalysisAgent": {
+    "ComplianceAgent": {
       "Type": "Task",
-      "Comment": "Analyzes contract for risk using Bedrock and assigns risk scores",
+      "Comment": "Applies compliance rules (GDPR, SOX, etc.) using Bedrock or local rules",
       "Resource": "arn:aws:states:::lambda:invoke",
       "Parameters": {
         "FunctionName": "${COMPLIANCE_LAMBDA}",
         "Payload": {
           "contract_id.$": "$.ingestion_result.contract_id",
-          "extracted.$": "$.ingestion_result.extracted",
-          "s3.$": "$.s3",
-          "vendor_metadata.$": "$.vendor_metadata"
+          "s3.$": "$.ingestion_result.s3",
+          "extracted_text.$": "$.ingestion_result.extracted_text",
+          "extracted_lines.$": "$.ingestion_result.extracted_lines",
+          "metadata.$": "$.ingestion_result.metadata"
         }
       },
-      "ResultPath": "$.risk_result",
+      "ResultPath": "$.compliance_result",
       "ResultSelector": {
         "contract_id.$": "$.Payload.contract_id",
-        "risk.$": "$.Payload.risk",
-        "risk_flag.$": "$.Payload.risk_flag",
+        "s3.$": "$.Payload.s3",
+        "findings.$": "$.Payload.findings",
+        "summary.$": "$.Payload.summary",
+        "bedrock_used.$": "$.Payload.bedrock_used",
+        "bedrock_response.$": "$.Payload.bedrock_response",
         "status.$": "$.Payload.status"
       },
       "Retry": [
@@ -69,11 +74,12 @@
           "ErrorEquals": [
             "Lambda.ServiceException",
             "Lambda.AWSLambdaException",
-            "Lambda.SdkClientException"
+            "Lambda.SdkClientException",
+            "States.TaskFailed"
           ],
           "IntervalSeconds": 2,
           "MaxAttempts": 3,
-          "BackoffRate": 2
+          "BackoffRate": 2.0
         }
       ],
       "Catch": [
@@ -88,21 +94,19 @@
 
     "PrepareOutput": {
       "Type": "Pass",
-      "Comment": "Prepare final output with risk scores",
+      "Comment": "Prepare final output with findings, summary and bedrock details",
       "Parameters": {
-        "contract_id.$": "$.ingestion_result.contract_id",
-        "s3_location.$": "States.Format('s3://{}/{}', $.s3.bucket, $.s3.key)",
-        "vendor_metadata.$": "$.vendor_metadata",
-        "risk_flag.$": "$.risk_result.risk_flag",
-        "risk_scores": {
-          "overall.$": "$.risk_result.risk.overall_risk",
-          "liability.$": "$.risk_result.risk.liability_risk",
-          "termination.$": "$.risk_result.risk.termination_risk",
-          "financial.$": "$.risk_result.risk.financial_risk"
-        },
-        "rationale.$": "$.risk_result.risk.rationale",
-        "extracted_clauses.$": "$.ingestion_result.extracted",
-        "status": "COMPLETED"
+        "contract_id.$": "$.compliance_result.contract_id",
+        "s3.$": "$.compliance_result.s3",
+        "s3_location.$": "States.Format('s3://{}/{}', $.compliance_result.s3.bucket, $.compliance_result.s3.key)",
+        "extracted_text.$": "$.ingestion_result.extracted_text",
+        "extracted_lines.$": "$.ingestion_result.extracted_lines",
+        "metadata.$": "$.ingestion_result.metadata",
+        "findings.$": "$.compliance_result.findings",
+        "summary.$": "$.compliance_result.summary",
+        "bedrock_used.$": "$.compliance_result.bedrock_used",
+        "bedrock_response.$": "$.compliance_result.bedrock_response",
+        "status.$": "$.compliance_result.status"
       },
       "ResultPath": "$.final_output",
       "Next": "WorkflowComplete"
@@ -117,7 +121,7 @@
     "WorkflowFailed": {
       "Type": "Fail",
       "Comment": "Contract review workflow failed",
-      "Cause": "Ingestion or Risk Analysis step failed"
+      "Cause": "Ingestion or Compliance step failed"
     }
   }
 }
